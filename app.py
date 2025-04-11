@@ -4,90 +4,79 @@ import librosa
 import joblib
 import tensorflow as tf
 import os
-import soundfile as sf
+import tempfile
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-# --------------------------------- PARTE 1: EXTRAIR FEATURES --------------------------------- #
+# ------------------------ CONFIGURAÇÃO INICIAL ------------------------ #
 
-# Carregar o modelo e o scaler
-MODEL_PATH = "models/audio_emotion_model.keras"  # Example
-SCALER_PATH = "models/scaler.pkl"                # Example
+MODEL_PATH = 'notebooks/models/emotion_recognition_model.h5'
+SCALER_PATH = 'notebooks/models/scaler.save'
+
+EMOTIONS = ["angry", "calm", "disgust", "fear",
+            "happy", "neutral", "sad", "surprise"]
 
 model = tf.keras.models.load_model(MODEL_PATH)
 scaler = joblib.load(SCALER_PATH)
 
-# Lista de emoções
-EMOTIONS = ["angry", "calm", "disgust", "fear",
-            "happy", "neutral", "sad", "surprise"]
-
-
-# Função para extrair features
+# ------------------------ FUNÇÃO DE EXTRAÇÃO ------------------------ #
 def extract_features(audio_path):
     data, sr = librosa.load(audio_path, sr=16000, mono=True)
     features = []
 
-    # Zero Crossing Rate
-    # Extract the zcr here
-    # features.extend(zcr)
+    features.extend(np.mean(librosa.feature.zero_crossing_rate(y=data).T, axis=0))
+    features.extend(np.mean(librosa.feature.chroma_stft(y=data, sr=sr).T, axis=0))
+    features.extend(np.mean(librosa.feature.mfcc(y=data, sr=sr, n_mfcc=40).T, axis=0))
+    features.extend(np.mean(librosa.feature.rms(y=data).T, axis=0))
+    features.extend(np.mean(librosa.feature.melspectrogram(y=data, sr=sr).T, axis=0))
 
-    # Chroma STFT
-    # Extract the chroma stft here
-    # features.extend(chroma)
-
-    # MFCCs
-    # Extract the mfccs here
-    # features.extend(mfccs)
-
-    # RMS
-    # Extract the rms here
-    # features.extend(rms)
-
-    # Mel Spectrogram
-    # Extract the mel here
-    # features.extend(mel)
-
-    # Garantir que tenha exatamente 162 features (ou truncar/zerar)
-    target_length = 162
+    target_length = 155
     if len(features) < target_length:
         features.extend([0] * (target_length - len(features)))
-    elif len(features) > target_length:
+    else:
         features = features[:target_length]
 
     return np.array(features).reshape(1, -1)
 
+# ------------------------ STREAMLIT APP ------------------------ #
 
-# --------------------------------- PARTE 2: STREAMLIT --------------------------------- #
+st.title("🎧 TRILHA: Detecção de Emoções em Áudio")
 
-# Configuração do app Streamlit (Título e descrição)
-# Code here
+st.markdown("""
+Bem-vindo ao sistema de detecção de emoções baseado em áudio!
 
-# Upload de arquivo de áudio (wav, mp3, ogg)
+Faça upload de um arquivo `.wav`, `.mp3` ou `.ogg` e descubra qual emoção está sendo expressada na fala.
+
+Um projeto feito por Nathan David um aluno do trilha. **DIVIRTA-SE!**
+""")
+
 uploaded_file = st.file_uploader(
-    "Escolha um arquivo de áudio...", type=["wav", "mp3", "ogg"])
+    "🎙️ Envie seu áudio aqui:", 
+    type=["wav", "mp3", "ogg"]
+)
 
 if uploaded_file is not None:
-    # Salvar temporariamente o áudio
-    # Code here
 
-    # Reproduzir o áudio enviado
-    # Code here
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
+        tmp_file.write(uploaded_file.read())
+        temp_audio_path = tmp_file.name
 
-    # Extrair features
-    # Code here
+    st.audio(temp_audio_path, format='audio/wav')
 
-    # Normalizar os dados com o scaler treinado
-    # Code here
+    features = extract_features(temp_audio_path)
 
-    # Ajustar formato para o modelo
-    # Code here
+    features_scaled = scaler.transform(features)
+    features_scaled = features_scaled.reshape(features_scaled.shape[0], features_scaled.shape[1], 1)
 
-    # Fazer a predição
-    # Code here
+    prediction = model.predict(features_scaled)
+    predicted_label = EMOTIONS[np.argmax(prediction)]
 
-    # Exibir o resultado
-    # Code here
+    st.markdown(f"### 🧠 Emoção Predita: **{predicted_label.upper()}**")
 
-    # Exibir probabilidades (gráfico de barras)
-    # Code here
-
-    # Remover o arquivo temporário
-    # Code here
+    fig, ax = plt.subplots(figsize=(8, 4))
+    sns.barplot(x=EMOTIONS, y=prediction[0], palette="viridis", ax=ax)
+    ax.set_ylabel("Probabilidade")
+    ax.set_title("Distribuição de Probabilidades por Emoção")
+    ax.set_ylim(0, 1)
+    st.pyplot(fig)
+    os.remove(temp_audio_path)
